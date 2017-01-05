@@ -1,0 +1,242 @@
+---
+title: "Tooploox_ver2"
+author: "Shilpa Khichar"
+date: "2 January 2017"
+output: html_document
+---
+
+```{r installation packages}
+requiredPackages <- c("Hmisc","caret","ggplot2","reshape2", "mice")
+if (length(setdiff(requiredPackages, rownames(installed.packages()))) > 0) {
+     install.packages(setdiff(requiredPackages, rownames(installed.packages())))
+  }
+```
+
+```{r install library}
+library(Hmisc)
+library(caret)
+library(ggplot2)
+library(reshape2)
+library(mice)
+```
+# Fetching data
+reading csv file and defining headers as Id and View_Hour_1:168, as csv file didnot had header
+```{r get data }
+data_Video_views <- read.csv(file.path(getwd(),"Tooploox.csv"), header=FALSE, sep=",", encoding="UTF-8")
+names(data_Video_views)[1] <- "Id"
+names(data_Video_views)[2:169] <-sprintf("View_hour_%d",1:168)
+```
+# Basic Statistics
+Analysing Basic Statistics for Video View Hours ->24,72,168
+```{r view data summary}
+summary(data_Video_views$View_hour_24)
+summary(data_Video_views$View_hour_72)
+summary(data_Video_views$View_hour_168)
+```
+Here we see that Mean is greater then Median and even 3rd Quantile.. 
+Lets see the plots 
+```{r basic statistics}
+attach(data_Video_views )
+par(mfrow=c(1,2))
+hist(View_hour_24, main="Histogram of Views at hour 24 of release" ,col= "red")
+boxplot(View_hour_24, main="Boxplot of Views at hour 24 of release")
+par(mfrow=c(1,2))
+hist(View_hour_72, main="Histogram of Views at hour 72 of release",col= "red")
+boxplot(View_hour_72, main="Boxplot of Views at hour 72 of release")
+par(mfrow=c(1,2))
+hist(View_hour_168, main="Histogram of Views at hour 168 of release",col= "red")
+boxplot(View_hour_168, main="Boxplot of Views at hour 168 of release")
+```
+From the Plots we summaries that Frequency count is very high for some Views at that hour,It means that many videos has similar number of Views at that Hour.
+
+Here we also see that for a few Videos the View Values are very high..must be very HIT videos, but in our case/study we should treat them as outliers.
+
+From the BoxPlot we can summarise that the Mean has high value because of those fewer very HIT videos.
+
+Next we analyse more basic statistics(missing values , Distinct values, top 5, lowest 5 values) using DESCRIBE function..
+```{r describing data}
+describe.vector(data_Video_views$View_hour_24)
+describe.vector(data_Video_views$View_hour_72)
+describe.vector(data_Video_views$View_hour_168)
+quantile(data_Video_views$View_hour_24 ,probs=seq(.80,.99,.02))
+quantile(data_Video_views$View_hour_72 ,probs=seq(.80,.99,.02))
+quantile(data_Video_views$View_hour_168 ,probs=seq(.80,.99,.02))
+```
+We see that there are no missing values at all and hardly any repeating values/Views for that hour...we also see that there is huge difference between top5 and lowest 5 values...
+Since the Mean is greater then Median and 3rd Quarter, so we look how the distribution is among top 20% values using QUANTILE function...
+# Log transformation
+```{r plotting log transformation}
+data_Video_views$View_hour_168_log = log(data_Video_views$View_hour_168)
+View_hour_168_log_mean = mean(data_Video_views$View_hour_168_log)
+View_hour_168_log_sd = sd(data_Video_views$View_hour_168_log)
+
+attach(data_Video_views)
+#hist(View_hour_168_log ,breaks=seq(8,20,by=.05))
+hist(View_hour_168_log , main="Histogram",xlab="View_hour_168_log",col="pink",label=TRUE,plot = TRUE, freq = F,breaks=seq(9,18,by=.5))  
+curve(dnorm(x, mean=View_hour_168_log_mean, sd=View_hour_168_log_sd), col="red", lwd=2, add=TRUE, yaxt="n")
+
+abline(v = c(View_hour_168_log_mean,
+             View_hour_168_log_mean+View_hour_168_log_sd,
+             View_hour_168_log_mean-View_hour_168_log_sd,
+             View_hour_168_log_mean+2*View_hour_168_log_sd,
+             View_hour_168_log_mean-2*View_hour_168_log_sd,
+             View_hour_168_log_mean+3*View_hour_168_log_sd,
+             View_hour_168_log_mean-3*View_hour_168_log_sd), lty = 2)
+
+text(x=View_hour_168_log_mean, y=0.5, labels='Mean', col='blue')
+text(x=View_hour_168_log_mean+View_hour_168_log_sd, y=0.5, labels='SD1', col='blue')
+text(x=View_hour_168_log_mean-View_hour_168_log_sd, y=0.5, labels='SD1', col='blue')
+text(x=View_hour_168_log_mean+2*View_hour_168_log_sd, y=0.5, labels='SD2', col='blue')
+text(x=View_hour_168_log_mean-2*View_hour_168_log_sd, y=0.5, labels='SD2', col='blue')
+text(x=View_hour_168_log_mean+3*View_hour_168_log_sd, y=0.5, labels='SD3', col='blue')
+text(x=View_hour_168_log_mean-3*View_hour_168_log_sd, y=0.5, labels='SD3', col='blue')
+```
+With the Log Transform we get a Normal Distribution, above is a plot of Normal Distribution with Mean and Standard Deviations... SD3 being 3Sigma which contains 99.7% data .. we remove the .3% data which is considered as outlier here..and next we do processing to get data witout outliers
+# Removing Outliers
+```{r removing outliers}
+data_Video_views_wo_outliers = subset(data_Video_views,
+                                     ( View_hour_168_log >= View_hour_168_log_mean-3*View_hour_168_log_sd)
+                                     & (View_hour_168_log <= View_hour_168_log_mean +3*View_hour_168_log_sd))
+nrow(data_Video_views_wo_outliers)
+
+attach(data_Video_views_wo_outliers)
+hist(View_hour_168_log , main="Histogram  wo outliers",xlab="View_hour_168_log",col="pink",label=TRUE,plot = TRUE, freq = F)  
+curve(dnorm(x, mean=View_hour_168_log_mean, sd=View_hour_168_log_sd), col="red", lwd=2, add=TRUE, yaxt="n")
+```
+Above Plots shows data without outliers.
+# Computing Correlation
+Correlation is the relationship or connection between two or more things(Views per hour here)... So here we chech how correlated our values are or if we have any inverse correlation in our case, we should generally not have any inverse correlation... but we should chech the degree of correlation between Views per Hour here.
+
+```{r compution correlation}
+
+for(i in 1:24){
+data_Video_views_wo_outliers[paste0("View_hour_",i,"_log")] =  log(data_Video_views_wo_outliers[paste0("View_hour_",i)])
+}
+
+high.corr.num <- findCorrelation(cor(data_Video_views_wo_outliers[170:194]), cutoff = .8)
+myvars <- names(data_Video_views_wo_outliers[170:194])[high.corr.num]
+
+
+qplot(x=Var1, y=Var2, data=melt(cor(data_Video_views_wo_outliers[170:194], use="p")), fill=value, geom="tile") + scale_fill_gradient2(limits=c(-1, 1))
+# Here we see that we have zero correlation for Views in the 1st hour of Release of the Videos... But it is a strange situation so lets analyse the data for View hour 1.
+describe.vector(data_Video_views$View_hour_1)
+# here we see that it has zero values,generally leaving out few samples with missing values is best strategy in order not to bias the analysis ..but here zero values are not acceptable ... so lets impute the zero or missing values
+imputation_input = data_Video_views_wo_outliers[,2:25]
+imputation_input[imputation_input == 0] = NA
+imputed_data = mice(imputation_input, m=5, maxit=50)
+data_Video_views_wo_outliers$View_hour_1 = complete(imputed_data)$View_hour_1
+data_Video_views_wo_outliers_na <- NULL
+data_Video_views_wo_outliers_na$View_hour_1_log = log(data_Video_views_wo_outliers$View_hour_1)
+data_Video_views_wo_outliers_na$View_hour_168_log = data_Video_views_wo_outliers$View_hour_168_log
+
+for(i in 2:24){
+data_Video_views_wo_outliers_na[paste0("View_hour_",i,"_log")] =  log(data_Video_views_wo_outliers[paste0("View_hour_",i)])
+}
+data_Video_views_wo_outliers_na <- as.data.frame(data_Video_views_wo_outliers_na)
+
+high.corr.num <- findCorrelation(cor(data_Video_views_wo_outliers_na), cutoff = .90)
+highly_correlated_variables <- names(data_Video_views_wo_outliers_na)[high.corr.num]
+highly_correlated_variables
+# Here we see that all the Variable are highly correlated i.e 90% is the degree of correlation
+qplot(x=Var1, y=Var2, data=melt(cor(data_Video_views_wo_outliers_na, use="p")), fill=value, geom="tile") + scale_fill_gradient2(limits=c(-1, 1))
+# so Next we check for 96% correlated variables..
+high.corr.num <- findCorrelation(cor(data_Video_views_wo_outliers_na), cutoff = .95)
+highly_correlated_variables <- names(data_Video_views_wo_outliers_na)[high.corr.num]
+highly_correlated_variables
+```
+So again we see that all columns are highly correlated leaving out View Hours 1 and 2 , which are little less correlated ... but the difference is negligible
+
+# Data Partitioning
+Here we randomly divide our dataset as :
+90% observations in training dataset
+10% observations in testing dataset
+```{r data partioning}
+set.seed(2017)
+indxTrainSet <- createDataPartition(y = data_Video_views_wo_outliers_na$View_hour_168_log , p=0.90)
+train <- data_Video_views_wo_outliers_na[indxTrainSet$Resample1, ]
+test <- data_Video_views_wo_outliers_na[-indxTrainSet$Resample1, ]
+```
+# Linear Regression
+LINEAR REGRESSION is an approch of modelling the relationship between a scalar dependent variable y and one or more explanatory variable(or independent variables) denoted x.
+one explanatory variable -> single input LR
+more then one explanatory variable -> multiple input LR
+# single input Linear Regression
+```{r LR single input}
+View_hour_168 = test$View_hour_168_log
+View_hour_1 = test$View_hour_1_log
+plot(View_hour_1~View_hour_168)
+abline(lm(View_hour_1~View_hour_168))
+# Here is plot of Linear Regression Model between View Hours 1 and 168.
+# Next we create a function for the same.
+linear_model_single_input = function(dataset, n) {
+formula = as.formula(paste0("View_hour_168_log ~ View_hour_",n,"_log"))
+return(lm(formula, data=data_Video_views_wo_outliers_na))
+}
+linear_model_single_input(train, 1)
+summary(linear_model_single_input(train, 1))
+```
+The model above is achieved by using the lm() function and the output is called using the  summary() function on the model.
+Output describes:
+Formula Call -> formula used to fit the model , here View_hour_168_log vs 'any other View hour'
+
+Residuals -> Residuals are the summary of difference between the actual observed response values and the predicted.
+
+Coefficient - Estimate ->intercept and slope in the linear model.
+Coefficient - Standard Error ->measure of average of actual vs predicted
+
+The coefficient t-value -> measure of how many standard deviations our coefficient estimate is far away from 0
+
+Residual Standard Error -> measure of the quality of a linear regression fit. 
+
+The R-squared statistic -> measure of how well the model is fitting the actual data.
+
+F-statistic -> indicator of whether there is a relationship between our predictor and the response variables.
+
+# Multiple input Linear Regression
+```{r LR multiple inputs}
+
+lm(formula = View_hour_168_log ~ View_hour_1_log + View_hour_2_log , data = train )
+
+linear_model_multiple_input = function(dataset, n){
+column_names = paste0(paste0("View_hour_",1:n,"_log"), collapse=" + ")
+formula = as.formula(paste0("View_hour_168_log ~" , column_names))
+return(lm(formula, data=dataset))
+}
+linear_model_multiple_input(train, 5)
+summary(linear_model_multiple_input(train, 5))
+```
+# mean Relative Squared Error (mRSE)
+```{r compute mRSE}
+rMSE = function(model , test_dataset){
+predictions = predict(model, newdata = test_dataset)
+predictions[is.na(predictions)] <- 0
+squares = ((predictions / test_dataset$View_hour_168_log) - 1)^2
+sum(squares) / nrow(test_dataset)
+}
+rMSE(linear_model_single_input(train, 24), test)
+```
+# Plotting mRSE
+```{r plotting mRSE}
+
+result_matrix = NULL
+model_type = NULL
+error = NULL
+for (reference_time in 1:24) {
+  
+model_type = "LR for Single Input" 
+error = rMSE(linear_model_single_input(train, reference_time), test)
+result_matrix= rbind(result_matrix, data.frame( reference_time,model_type,error))
+
+model_type = "LR for Multiple Input" 
+error = rMSE(linear_model_multiple_input(train, reference_time), test)
+result_matrix= rbind(result_matrix, data.frame( reference_time,model_type,error))
+
+}
+ggplot(data = result_matrix, aes(x=reference_time, y=error, color = model_type)) +
+geom_line() + geom_point(aes(shape=model_type)) +
+xlab("Reference time (n)") +
+ylab("mRSE") +
+ylim(0, max(result_matrix$error))+
+theme(legend.position=c(1,1) , legend.justification=c(1,1), legend.title = element_blank())
+
+```
